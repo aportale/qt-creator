@@ -30,7 +30,18 @@
 
 #include <QtTest>
 
+#include <iostream>
+
 using namespace Utils;
+
+const char kExitCodeSubProcessCode[] = "QTC_TST_QTCPROCESS_EXITCODE_CODE";
+
+static void exitCodeSubProcessMain()
+{
+    const int exitCode = qEnvironmentVariableIntValue(kExitCodeSubProcessCode);
+    std::cout << "Exiting with code:" << exitCode << std::endl;
+    exit(exitCode);
+}
 
 class MacroMapExpander : public AbstractMacroExpander {
 public:
@@ -73,6 +84,8 @@ private slots:
     void iterations();
     void iteratorEditsWindows();
     void iteratorEditsLinux();
+    void exitCode_data();
+    void exitCode();
 
 private:
     void iteratorEditsHelper(OsType osType);
@@ -88,6 +101,9 @@ private:
 
 void tst_QtcProcess::initTestCase()
 {
+    if (qEnvironmentVariableIsSet(kExitCodeSubProcessCode))
+        exitCodeSubProcessMain();
+
     homeStr = QLatin1String("@HOME@");
     home = QDir::homePath();
 
@@ -741,6 +757,45 @@ void tst_QtcProcess::iteratorEditsWindows()
 void tst_QtcProcess::iteratorEditsLinux()
 {
     iteratorEditsHelper(OsTypeLinux);
+}
+
+void tst_QtcProcess::exitCode_data()
+{
+    QTest::addColumn<int>("exitCode");
+
+    static const auto exitCodes = {
+        "-12345", "-1", "0", "1", "12345"
+    };
+    for (auto exitCode : exitCodes)
+        QTest::newRow(exitCode) << QString::fromLatin1(exitCode).toInt();
+}
+
+void tst_QtcProcess::exitCode()
+{
+    QFETCH(int, exitCode);
+
+    Environment env = Environment::systemEnvironment();
+    env.set(kExitCodeSubProcessCode, QString::number(exitCode));
+    QStringList args = QCoreApplication::arguments();
+    const CommandLine command(args.takeFirst(), args);
+
+    {
+        QtcProcess qtcP;
+        qtcP.setCommand(command);
+        qtcP.setEnvironment(env);
+        qtcP.start();
+        qtcP.waitForFinished();
+
+        QVERIFY2(exitCode == qtcP.exitCode(), "QtcProcess::start()");
+    }
+    {
+        SynchronousProcess sP;
+        sP.setCommand(command);
+        sP.setEnvironment(env);
+        sP.runBlocking();
+
+        QVERIFY2(exitCode == sP.exitCode(), "SynchronousProcess::runBlocking()");
+    }
 }
 
 QTEST_MAIN(tst_QtcProcess)
